@@ -1,0 +1,92 @@
+```{r}
+library(Seurat)             # General workflow
+library(SeuratDisk)         # Loading datasets
+library(SeuratWrappers)     # Wrappers for Seurat (libraries developed by other adapted to work with Seurat)
+library(clusterProfiler)    # Functional significance analysis (by over-representation of GO terms)
+library(celldex)            # bulk and single cell RNA-seq datasets for performing cell annotation
+library(scRNAseq)           # Single-cell RNA-seq datasets
+library(SingleR)            # Perform cell annotation comparing your query dataset against a (usually manually curated) reference dataset
+library(scuttle)            # Processing single-cell object to make SingleR work
+library(slingshot)          # Perform pseudotrajectory calculation
+library(monocle3)           # Perform pseudotrajectory calculation
+library(Nebulosa)           # Plots density graphs of two genes in UMAP # (useful for manual annotation of cell types)
+library(dplyr)              # Suitable data rearranging
+library(ggplot2)            # Improved plotting features
+library(patchwork)
+library(magrittr)
+library(grDevices)
+library(RColorBrewer)
+library(velocyto.R)
+library(SeuratWrappers)
+library(BiocFileCache)
+
+library(future)             # Parallelization
+library(parallel)           # Parallelization
+library(BiocParallel)       # Parallelization
+cores <- detectCores(all.tests = FALSE, logical = TRUE) - 1
+plan("multicore", workers = cores)
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1)
+
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+```
+
+```{r}
+data_wd <- "/home/jesus/Escritorio/proyectoBSC/RNAvelocity/RealCase/datasets/COVID/seurat/" 
+results_wd <- "/home/jesus/Escritorio/proyectoBSC/RNAvelocity/RealCase/results/healthy/healthy2/"  
+sample <- "healthySRR11537946"
+
+seuratObject2 <- readRDS(file = paste(data_wd,"rds/",sample, "_macrophages",".rds", sep=""))
+global_likelihood_genes <- read.csv2(paste(results_wd,"scvelo/global_likelihood_genes.csv", sep=""), header=TRUE, sep=",")[,"X0"]
+important_hyper_cluster_genes <- read.csv2(paste(results_wd,"scvelo/important_hyper_cluster_genes.csv", sep=""), header=TRUE, sep=",")[,"X0"]
+toplikelihood_hyper_cluster_genes <- read.csv2(paste(results_wd,"scvelo/toplikelihood_hyper_cluster_genes.csv", sep=""), header=TRUE, sep=",")[,"X0"]
+```
+
+```{r}
+global_query <- bitr(global_likelihood_genes, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)[,2]
+important_query <- bitr(important_hyper_cluster_genes, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)[,2]
+toplikelihood_query <- bitr(toplikelihood_hyper_cluster_genes, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)[,2]
+
+hyper_universe <- bitr(rownames(seuratObject2), fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)[,2]
+
+global_enriched <- enrichGO(gene = global_query,
+                OrgDb = org.Hs.eg.db,
+                universe = hyper_universe,
+                keyType = 'ENTREZID',
+                minGSSize    = 100,
+                maxGSSize    = 500,
+                ont  = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05)
+
+important_enriched <- enrichGO(gene = important_query,
+                OrgDb = org.Hs.eg.db,
+                universe = hyper_universe,
+                keyType = 'ENTREZID',
+                minGSSize    = 100,
+                maxGSSize    = 500,
+                ont  = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05)
+
+toplikelihood_enriched <- enrichGO(gene = toplikelihood_query,
+                OrgDb = org.Hs.eg.db,
+                universe = hyper_universe,
+                keyType = 'ENTREZID',
+                minGSSize    = 100,
+                maxGSSize    = 500,
+                ont  = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05)
+
+
+top_terms_global <- global_enriched[,c("Description", "p.adjust", "GeneRatio")] %>% arrange(p.adjust) %>% head(10)
+top_terms_important <- important_enriched[,c("Description", "p.adjust", "GeneRatio")] %>% arrange(p.adjust) %>% head(10)
+top_terms_toplikelihood <- toplikelihood_enriched[,c("Description", "p.adjust", "GeneRatio")] %>% arrange(p.adjust) %>% head(10)
+
+write.csv(top_terms_global, file = paste(results_wd, "scvelo/top_terms", "_global_enriched.csv", sep=""))
+write.csv(top_terms_important, file = paste(results_wd, "scvelo/top_terms", "_important_enriched.csv", sep=""))
+write.csv(top_terms_toplikelihood, file = paste(results_wd, "scvelo/top_terms", "_toplikelihood_enriched.csv", sep=""))          
+```
